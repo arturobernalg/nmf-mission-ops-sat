@@ -71,7 +71,10 @@
       <groupId>int.esa.nmf.core</groupId>
       <artifactId>helper-tools</artifactId>
     </dependency>
-    <!-- Need by the smart parameter provider to implement the OBSW parameter values provider interface -->
+    <dependency>
+      <groupId>int.esa.nmf.mission.opssat.nanomind</groupId>
+      <artifactId>consumers</artifactId>
+    </dependency>
     <dependency>
       <groupId>int.esa.nmf.core</groupId>
       <artifactId>nanosat-mo-supervisor</artifactId>

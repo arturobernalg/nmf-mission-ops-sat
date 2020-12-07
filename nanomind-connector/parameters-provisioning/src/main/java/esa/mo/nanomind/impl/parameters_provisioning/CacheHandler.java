@@ -22,16 +22,16 @@ public class CacheHandler extends OBSWParameterValuesProvider {
   /**
    * Map of OBSW parameter value by parameter name acting as our cache storage.
    */
-  private final Map<Identifier, OBSWParameterValue> cache;
+  private final Map<Identifier, TimedAttributeValue> cache;
 
   /*
    * Cache configuration settings
    */
 
   /**
-   * Maximum time a parameter value should stay in the cache in milliseconds.
+   * Maximum time a parameter value should stay in the cache in seconds.
    */
-  private long cachingTime = 10 * 1000;
+  private long cachingTime = 10;
 
   /**
    * Creates a new instance of CacheHandler.
@@ -40,11 +40,11 @@ public class CacheHandler extends OBSWParameterValuesProvider {
    */
   public CacheHandler(HashMap<Identifier, OBSWParameter> parameterMap) {
     super(parameterMap);
-    cache = new HashMap<Identifier, OBSWParameterValue>();
+    cache = new HashMap<Identifier, TimedAttributeValue>();
   }
 
   /**
-   * Sets the maximum time a parameter value should stay in the cache in milliseconds.
+   * Sets the maximum time a parameter value should stay in the cache in seconds.
    * 
    * @param cachingTime the time
    */
@@ -68,7 +68,7 @@ public class CacheHandler extends OBSWParameterValuesProvider {
     long now = System.currentTimeMillis();
 
     // This parameter value is outdated
-    if (now - cache.get(identifier).getLastUpdateTime().getTime() > cachingTime) {
+    if (now - cache.get(identifier).getLastUpdateTime().getTime() > cachingTime * 1000) {
       return true;
     }
 
@@ -93,7 +93,7 @@ public class CacheHandler extends OBSWParameterValuesProvider {
    */
   public synchronized void cacheValue(Attribute value, Identifier identifier) {
     if (!cache.containsKey(identifier)) {
-      cache.put(identifier, new OBSWParameterValue(parameterMap.get(identifier), value));
+      cache.put(identifier, new TimedAttributeValue(value));
     } else {
       cache.get(identifier).setValue(value);
     }
