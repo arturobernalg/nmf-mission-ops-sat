@@ -186,16 +186,16 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
 
     Attribute paramValue = null;
 
-    // The parameter values are in the same order as in the aggregation definition
+    // Parameter values are in the same order as in the aggregation definition
     for (int i = 0; i < aggValue.getValues().size(); i++) {
       Attribute value = aggValue.getValues().get(i).getRawValue();
       Identifier paramName = new Identifier(agg.getParameters().get(i).getName());
 
-      // We return the requested parameter
+      // Return the requested parameter
       if (paramName.equals(identifier)) {
         paramValue = value;
       }
-      // Since a whole aggregation is returned, we take the chance to update every parameters
+      // A whole aggregation is returned, take the chance to update every parameters
       cacheHandler.cacheValue(value, identifier);
     }
 
@@ -381,10 +381,13 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
       if (obswParam.getAggregation() == null) {
         assignAggregationToParameter(obswParam);
       }
-
-      OBSWAggregation agg = obswParam.getAggregation();
+      // If assignment failed (nanomind rejected update or creation of aggregation), give up for now
+      if (obswParam.getAggregation() == null) {
+        return null;
+      }
 
       // Query the nanomind using the aggregation service
+      OBSWAggregation agg = obswParam.getAggregation();
       AggregationValue aggValue = getNanomindAggregationValue(agg.getId());
       return retrieveValueAndUpdateCache(aggValue, agg, identifier);
     } finally {
