@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -20,6 +21,7 @@ import org.ccsds.moims.mo.mal.structures.Duration;
 import org.ccsds.moims.mo.mal.structures.Identifier;
 import org.ccsds.moims.mo.mal.structures.IdentifierList;
 import org.ccsds.moims.mo.mal.structures.LongList;
+import org.ccsds.moims.mo.mal.structures.URI;
 import esa.mo.helpertools.connections.SingleConnectionDetails;
 import esa.mo.nanomind.impl.consumer.AggregationNanomindConsumerServiceImpl;
 import esa.mo.nmf.nanosatmosupervisor.parameter.OBSWAggregation;
@@ -69,6 +71,10 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
    */
   private AggregationNanomindConsumerServiceImpl aggServiceCns;
 
+  private static final String NANOMIND_APID = "10"; // Default Nanomind APID (on 13 June 2016)
+  private static final String MAL_SPP_BINDINDING = "malspp"; // Use the SPP Implementation
+  private static final String SOURCE_ID = "0"; // OBSW supports any value. By default it is set to 0
+
   /**
    * Lock for the aggregation definitions
    */
@@ -88,7 +94,7 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
   /**
    * Interval (seconds) between attempts to clean aggregations definitions.
    */
-  private static final int AGGREGATION_CLEANING_INTERVAL = 2;
+  private static final int AGGREGATION_CLEANING_INTERVAL = 5;
 
   /**
    * Creates a new instance of CacheParameterValuesProvider.
@@ -116,13 +122,22 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
    * Initializes the Nanomind aggregation service consumer
    */
   private void initAggregationServiceConsumer() {
-    // TODO Connection settings to the Nanomind services
+    // Disable secondary header flags to match OBSW
+    System.setProperty("org.ccsds.moims.mo.malspp.authenticationIdFlag", "false");
+    System.setProperty("org.ccsds.moims.mo.malspp.domainFlag", "false");
+    System.setProperty("org.ccsds.moims.mo.malspp.priorityFlag", "false");
+    System.setProperty("org.ccsds.moims.mo.malspp.networkZoneFlag", "false");
+    System.setProperty("org.ccsds.moims.mo.malspp.sessionNameFlag", "false");
+    System.setProperty("org.ccsds.moims.mo.malspp.timestampFlag", "false");
+
+    // Connection details to Nanomind aggregation service
     SingleConnectionDetails details = new SingleConnectionDetails();
     IdentifierList domain = new IdentifierList();
-    domain.add(new Identifier("TODO"));
+    domain.add(new Identifier("OPSSAT"));
     details.setDomain(domain);
-    details.setBrokerURI("TODO");
-    details.setProviderURI("TODO");
+    URI brokerUri = null;
+    details.setBrokerURI(brokerUri);
+    details.setProviderURI(MAL_SPP_BINDINDING + ":247/" + NANOMIND_APID + "/" + SOURCE_ID);
 
     try {
       this.aggServiceCns = new AggregationNanomindConsumerServiceImpl(details);
@@ -263,8 +278,7 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
     newAggregation.setId(-1); // will be provided by the Nanomind
     newAggregation.setDynamic(false);
     newAggregation.setBuiltin(false);
-    newAggregation.setName(className + "_AGG_" + nanomindDefinitions.size()); // TODO unicity?
-                                                                              // reboot?
+    newAggregation.setName(className + "_AGG_" + UUID.randomUUID());
     newAggregation.setCategory(new AggregationCategoryFactory().createElement().toString());
     newAggregation.setUpdateInterval(0);
     newAggregation.setGenerationEnabled(false);
@@ -406,6 +420,10 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
     lock.lock();
     try {
       // search parameters
+      LOGGER.log(Level.INFO, "Currently defined aggregations:");
+      for (OBSWAggregation obswAgg : nanomindDefinitions) {
+        LOGGER.log(Level.INFO, obswAgg.toString());
+      }
 
       // remove parameters
 
@@ -433,8 +451,7 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
     try {
       Thread.sleep(100000);
     } catch (InterruptedException e) {
-      // TODO Auto-generated catch block
-
+      // Auto-generated catch block
     }
   }
 }

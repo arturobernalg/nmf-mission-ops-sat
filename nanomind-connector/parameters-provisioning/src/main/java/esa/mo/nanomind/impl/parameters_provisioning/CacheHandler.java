@@ -4,6 +4,7 @@
 
 package esa.mo.nanomind.impl.parameters_provisioning;
 
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import org.ccsds.moims.mo.mal.structures.Attribute;
@@ -74,6 +75,20 @@ public class CacheHandler extends OBSWParameterValuesProvider {
 
     // No need to refresh, cached value is still valid.
     return false;
+  }
+
+  /**
+   * Returns the date and time at which the parameter was last updated in the cache.
+   *
+   * @param identifier Name of the parameter
+   * @return A Date object or null if the parameter was never cached before
+   */
+  public synchronized Date getLastUpdateTime(Identifier identifier) {
+    if (!cache.containsKey(identifier)) {
+      return null;
+    }
+
+    return cache.get(identifier).getLastUpdateTime();
   }
 
   /** {@inheritDoc} */
