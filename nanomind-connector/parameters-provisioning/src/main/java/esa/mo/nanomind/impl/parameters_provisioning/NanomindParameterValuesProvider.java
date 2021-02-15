@@ -8,6 +8,7 @@ import java.net.MalformedURLException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.UUID;
@@ -66,6 +67,16 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
    */
   private static final int AGGREGATION_DEF_MAX_PARAM = 5;
 
+  /*
+   * Maximum number of aggregation that we can define.
+   */
+  private static final int MAX_AGGREGATION_DEFINED = 1000;
+
+  /**
+   * Prefix for name of all aggregation definitions we generate.
+   */
+  private static final String AGG_DEF_NAME_PREFIX = "Z";
+
   /**
    * Nanomind aggregation service consumer
    */
@@ -94,7 +105,7 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
   /**
    * Interval (seconds) between attempts to clean aggregations definitions.
    */
-  private static final int AGGREGATION_CLEANING_INTERVAL = 5;
+  private static final int AGGREGATION_CLEANING_INTERVAL = 10;
 
   /**
    * Creates a new instance of CacheParameterValuesProvider.
@@ -122,14 +133,6 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
    * Initializes the Nanomind aggregation service consumer
    */
   private void initAggregationServiceConsumer() {
-    // Disable secondary header flags to match OBSW
-    System.setProperty("org.ccsds.moims.mo.malspp.authenticationIdFlag", "false");
-    System.setProperty("org.ccsds.moims.mo.malspp.domainFlag", "false");
-    System.setProperty("org.ccsds.moims.mo.malspp.priorityFlag", "false");
-    System.setProperty("org.ccsds.moims.mo.malspp.networkZoneFlag", "false");
-    System.setProperty("org.ccsds.moims.mo.malspp.sessionNameFlag", "false");
-    System.setProperty("org.ccsds.moims.mo.malspp.timestampFlag", "false");
-
     // Connection details to Nanomind aggregation service
     SingleConnectionDetails details = new SingleConnectionDetails();
     IdentifierList domain = new IdentifierList();
@@ -230,7 +233,9 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
     // No existing aggregation can hold this parameter
     if (obswAgg == null) {
       obswAgg = createAggregationForParameter(obswParameter);
-      isAssigned = addDefinitionInNanomind(obswAgg);
+      if (obswAgg != null) {
+        isAssigned = addDefinitionInNanomind(obswAgg);
+      }
     }
     // Update an existing aggregation
     else {
@@ -269,22 +274,33 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
    * Creates a new aggregation containing the given parameter.
    *
    * @param obswParameter The parameter to include in the new aggregation
-   * @return The aggregation
+   * @return The aggregation or null if we reached the limit of aggregations definitions
    */
   private OBSWAggregation createAggregationForParameter(OBSWParameter obswParameter) {
-    String className = this.getClass().getSimpleName();
+    if (nanomindDefinitions.size() >= MAX_AGGREGATION_DEFINED) {
+      LOGGER.log(Level.SEVERE,
+          String.format(
+              "Max number of aggregation definitions reached, can't fetch value of parameter %s",
+              obswParameter.getName()));
+      return null;
+    }
 
     OBSWAggregation newAggregation = new OBSWAggregation();
     newAggregation.setId(-1); // will be provided by the Nanomind
     newAggregation.setDynamic(false);
     newAggregation.setBuiltin(false);
-    newAggregation.setName(className + "_AGG_" + UUID.randomUUID());
+    newAggregation.setName(nextAggregationDefinitionName());
+    newAggregation.setDescription("Gen. by supervisor");
     newAggregation.setCategory(new AggregationCategoryFactory().createElement().toString());
     newAggregation.setUpdateInterval(0);
     newAggregation.setGenerationEnabled(false);
     newAggregation.getParameters().add(obswParameter);
 
     return newAggregation;
+  }
+
+  private String nextAggregationDefinitionName() {
+    return String.format(AGG_DEF_NAME_PREFIX + "%03d", nanomindDefinitions.size());
   }
 
   /**
@@ -391,11 +407,11 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
 
     lock.lock();
     try {
+
       // If parameter is not included in an aggregation we assign it to one
       if (obswParam.getAggregation() == null) {
         assignAggregationToParameter(obswParam);
-      }
-      // If assignment failed (nanomind rejected update or creation of aggregation), give up for now
+      } // If assignment failed (nanomind rejected update or creation of aggregation), give up
       if (obswParam.getAggregation() == null) {
         return null;
       }
@@ -410,7 +426,6 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
   }
 
   /**
-   * 
    * TODO cleanAggregations
    *
    * @param parameterTimeout
@@ -419,20 +434,15 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
     LOGGER.log(Level.INFO, "cleaning aggregations");
     lock.lock();
     try {
-      // search parameters
       LOGGER.log(Level.INFO, "Currently defined aggregations:");
       for (OBSWAggregation obswAgg : nanomindDefinitions) {
         LOGGER.log(Level.INFO, obswAgg.toString());
       }
-
-      // remove parameters
-
     } finally {
       lock.unlock();
     }
   }
 
-  /** {@inheritDoc} */
   @Override
   public Attribute getValue(Identifier identifier) {
     if (cacheHandler.mustRefreshValue(identifier)) {
@@ -447,9 +457,28 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
    * @param args
    */
   public static void main(String[] args) {
-    new NanomindParameterValuesProvider(new HashMap<Identifier, OBSWParameter>());
+    HashMap<Identifier, OBSWParameter> m = new HashMap<Identifier, OBSWParameter>();
+    OBSWParameter p = new OBSWParameter(new Long(1), "test_param", "desc", "float", "n/a");
+    Identifier id = new Identifier("test_param");
+    m.put(id, p);
+
+    NanomindParameterValuesProvider provider = new NanomindParameterValuesProvider(m);
+
+    for (int i = 0; i < 5; i++) {
+      Timer timer = new Timer(true);
+      timer.schedule(new TimerTask() {
+        @Override
+        public void run() {
+          System.out.println(provider.getValue(id));
+        }
+      }, 500, 500);
+    }
+
     try {
-      Thread.sleep(100000);
+      while (true) {
+        Thread.sleep(500);
+      }
+
     } catch (InterruptedException e) {
       // Auto-generated catch block
     }
