@@ -105,7 +105,7 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
   /**
    * Interval (seconds) between attempts to clean aggregations definitions.
    */
-  private static final int AGGREGATION_CLEANING_INTERVAL = 10;
+  private static final int AGGREGATION_CLEANING_INTERVAL = 30;
 
   /**
    * Creates a new instance of CacheParameterValuesProvider.
@@ -173,7 +173,12 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
     LongList aggIds = new LongList();
     aggIds.add(aggId);
     try {
+      LOGGER.log(Level.INFO,
+          String.format("calling getValue(%d) from Nanomind Agg. service consumer", aggId));
       GetValueResponse valueResponse = aggServiceCns.getAggregationNanomindStub().getValue(aggIds);
+      LOGGER.log(Level.INFO,
+          String.format("Agg. value for agg. id %d fetched from Nanomind", aggId));
+
       AggregationValueList aggValueList = valueResponse.getBodyElement1();
       AggregationValue aggValue = aggValueList.get(0);
       return aggValue;
@@ -214,7 +219,8 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
         paramValue = value;
       }
       // A whole aggregation is returned, take the chance to update every parameters
-      cacheHandler.cacheValue(value, identifier);
+      cacheHandler.cacheValue(value, paramName);
+      LOGGER.log(Level.INFO, String.format("Cached value %s for parameter %s", value, paramName));
     }
 
     return paramValue;
@@ -300,7 +306,11 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
   }
 
   private String nextAggregationDefinitionName() {
-    return String.format(AGG_DEF_NAME_PREFIX + "%03d", nanomindDefinitions.size());
+    return getAggregationIdentifier(nanomindDefinitions.size());
+  }
+
+  private String getAggregationIdentifier(int i) {
+    return String.format(AGG_DEF_NAME_PREFIX + "%03d", i);
   }
 
   /**
@@ -316,11 +326,16 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
     AggregationDefinitionList aggList = toAggregationDefinitionList(updatedAggregation);
 
     try {
+      LOGGER.log(Level.INFO,
+          String.format("calling updateDefinition(%s) from Nanomind Agg. service consumer",
+              updatedAggregation.getName()));
       aggServiceCns.getAggregationNanomindStub().updateDefinition(ids, aggList);
+      LOGGER.log(Level.INFO,
+          String.format("Agg. definition %s updated in Nanomind", updatedAggregation.getName()));
     } catch (MALInteractionException | MALException e) {
       // Aggregation couldn't be updated to the Nanomind
       LOGGER.log(Level.SEVERE,
-          "Error while calling addDefinition operation of Nanoming aggregation service", e);
+          "Error while calling updateDefinition operation of Nanoming aggregation service", e);
       return false;
     }
 
@@ -338,7 +353,12 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
     AggregationDefinitionList list = toAggregationDefinitionList(newAggregation);
 
     try {
+      LOGGER.log(Level.INFO,
+          String.format("calling addDefinition(%s) from Nanomind Agg. service consumer",
+              newAggregation.getName()));
       ids = aggServiceCns.getAggregationNanomindStub().addDefinition(list);
+      LOGGER.log(Level.INFO,
+          String.format("Agg. definition %s added in Nanomind", newAggregation.getName()));
     } catch (MALInteractionException | MALException e) {
       // Aggregation couldn't be added to the Nanomind
       LOGGER.log(Level.SEVERE,
@@ -367,8 +387,7 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
     }
 
     // Aggregation reference
-    AggregationReferenceList paramsSetList =
-        new AggregationReferenceList(obswAggregation.getParameters().size());
+    AggregationReferenceList paramsSetList = new AggregationReferenceList();
     AggregationReference paramsSet =
         new AggregationReference(null, paramIds, new Duration(0), null);
     paramsSetList.add(paramsSet);
@@ -380,7 +399,7 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
         false, new Duration(), paramsSetList);
 
     // Finally the list
-    AggregationDefinitionList list = new AggregationDefinitionList(1);
+    AggregationDefinitionList list = new AggregationDefinitionList();
     list.add(def);
 
     return list;
@@ -396,8 +415,6 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
    *         value
    */
   private Attribute getNewValue(Identifier identifier) {
-    LOGGER.log(Level.INFO, "getNewValue(" + identifier + ") called");
-
     // Parameter is unknown
     if (!parameterMap.containsKey(identifier)) {
       return null;
@@ -405,24 +422,19 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
 
     OBSWParameter obswParam = parameterMap.get(identifier);
 
-    lock.lock();
-    try {
-
-      // If parameter is not included in an aggregation we assign it to one
-      if (obswParam.getAggregation() == null) {
-        assignAggregationToParameter(obswParam);
-      } // If assignment failed (nanomind rejected update or creation of aggregation), give up
-      if (obswParam.getAggregation() == null) {
-        return null;
-      }
-
-      // Query the nanomind using the aggregation service
-      OBSWAggregation agg = obswParam.getAggregation();
-      AggregationValue aggValue = getNanomindAggregationValue(agg.getId());
-      return retrieveValueAndUpdateCache(aggValue, agg, identifier);
-    } finally {
-      lock.unlock();
+    // If parameter is not included in an aggregation we assign it to one
+    if (obswParam.getAggregation() == null) {
+      assignAggregationToParameter(obswParam);
     }
+    // If assignment failed (nanomind rejected update or creation of aggregation), give up
+    if (obswParam.getAggregation() == null) {
+      return null;
+    }
+
+    // Query the nanomind using the aggregation service
+    OBSWAggregation agg = obswParam.getAggregation();
+    AggregationValue aggValue = getNanomindAggregationValue(agg.getId());
+    return retrieveValueAndUpdateCache(aggValue, agg, identifier);
   }
 
   /**
@@ -431,12 +443,36 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
    * @param parameterTimeout
    */
   private void cleanAggregations(int parameterTimeout) {
-    LOGGER.log(Level.INFO, "cleaning aggregations");
     lock.lock();
     try {
-      LOGGER.log(Level.INFO, "Currently defined aggregations:");
+      String message = "Locally defined aggregations:\n";
       for (OBSWAggregation obswAgg : nanomindDefinitions) {
-        LOGGER.log(Level.INFO, obswAgg.toString());
+        message += (obswAgg.toString() + "\n");
+        for (OBSWParameter p : obswAgg.getParameters()) {
+          message += (p.toString() + "\n");
+        }
+      }
+      LOGGER.log(Level.INFO, message);
+
+      message = "Remotely (Nanomind) defined aggregations:\n";
+      IdentifierList identifierList = new IdentifierList();
+      for (int i = 0; i < 5; i++) {
+        identifierList.add(new Identifier(getAggregationIdentifier(i)));
+      }
+      try {
+        LongList idsList =
+            aggServiceCns.getAggregationNanomindStub().listDefinition(identifierList);
+        if (idsList == null) {
+          message += "";
+        } else {
+          for (Long id : idsList) {
+            message += String.format("AggregationDefinition[ID=%s]\n", id);
+          }
+        }
+        LOGGER.log(Level.INFO, message);
+      } catch (MALInteractionException | MALException e) {
+        LOGGER.log(Level.SEVERE,
+            "Error while calling listDefinition operation of Nanoming aggregation service", e);
       }
     } finally {
       lock.unlock();
@@ -445,10 +481,18 @@ public class NanomindParameterValuesProvider extends OBSWParameterValuesProvider
 
   @Override
   public Attribute getValue(Identifier identifier) {
-    if (cacheHandler.mustRefreshValue(identifier)) {
-      return getNewValue(identifier);
+    LOGGER.log(Level.INFO, "getValue(" + identifier + ") called");
+
+    lock.lock();
+    try {
+      if (cacheHandler.mustRefreshValue(identifier)) {
+        return getNewValue(identifier);
+      }
+      return cacheHandler.getValue(identifier);
+    } finally {
+      lock.unlock();
+      LOGGER.log(Level.INFO, "getValue(" + identifier + ") finished");
     }
-    return cacheHandler.getValue(identifier);
   }
 
   /**
